@@ -24,11 +24,10 @@ C = {
     "green":      (34, 120,  60),
     "red":        (160,  30,  30),
     "purple":     (90,  40, 130),
-    # Simple table palette
-    "tbl_head_bg":  (230, 236, 244),   # soft steel-blue header
-    "tbl_head_txt": (15,  52,  86),    # navy text
-    "tbl_stripe":   (247, 249, 252),   # very light alternate row
-    "tbl_border":   (200, 207, 218),   # muted border line
+    # Simple table colors
+    "tbl_header_bg": (70,  90, 115),   # Muted slate-blue header
+    "tbl_row_alt":   (245, 247, 250),  # Very light gray stripe
+    "tbl_border":    (200, 205, 212),  # Soft border line
 }
 
 def generate_pdf(markdown_text: str, uniprot_id: str) -> bytes:
@@ -66,11 +65,11 @@ def _build(md: str, uid: str) -> bytes:
             self.set_font("Helvetica", "B", 7)
             self.set_text_color(*C["navy"])
             self.set_xy(6, 4)
-            self.cell(80, 5, "ProteoSage  ·  AI Protein Research Platform", align="L")
+            self.cell(80, 5, "ProteoSage  .  AI Protein Research Platform", align="L")
             self.set_font("Helvetica", "", 7)
             self.set_text_color(*C["gray_mid"])
             self.set_xy(90, 4)
-            self.cell(115, 5, f"UniProt: {uid}  ·  {datetime.utcnow().strftime('%Y-%m-%d')}", align="R")
+            self.cell(115, 5, f"UniProt: {uid}  .  {datetime.utcnow().strftime('%Y-%m-%d')}", align="R")
             self.set_draw_color(*C["gray_light"])
             self.line(6, 12, 204, 12)
             self.set_y(16)
@@ -84,7 +83,7 @@ def _build(md: str, uid: str) -> bytes:
             self.set_font("Helvetica", "", 7)
             self.set_text_color(*C["gray_mid"])
             self.set_y(self.get_y() + 2)
-            self.cell(95, 5, "Confidential Research Report  ·  ProteoSage v1.0", align="L")
+            self.cell(95, 5, "Confidential Research Report  .  ProteoSage v1.0", align="L")
             self.cell(0, 5, f"Page {self.page_no()}", align="R")
 
     pdf = PDF()
@@ -107,7 +106,7 @@ def _build(md: str, uid: str) -> bytes:
     pdf.set_xy(0, 18)
     pdf.set_font("Helvetica", "", 10)
     pdf.set_text_color(160, 200, 235)
-    pdf.cell(210, 8, "ProteoSage  ·  AI Protein Research Platform", align="C")
+    pdf.cell(210, 8, "ProteoSage  .  AI Protein Research Platform", align="C")
 
     # Main title
     pdf.set_xy(0, 30)
@@ -119,6 +118,7 @@ def _build(md: str, uid: str) -> bytes:
         if ln.startswith("# "):
             pname = _c(ln[2:])
             break
+    # Truncate if too long
     if len(pname) > 40:
         pname = pname[:38] + "..."
     pdf.multi_cell(210, 14, pname, align="C")
@@ -145,7 +145,7 @@ def _build(md: str, uid: str) -> bytes:
     pdf.cell(0, 8, f"UniProt Accession: {uid}", align="L")
 
     # Extract gene name
-    gene = "—"
+    gene = "-"
     for ln in md.split("\n"):
         if "**Gene:**" in ln or "Gene |" in ln:
             m = re.search(r'Gene.*?[:\|]\s*`?([A-Z0-9]+)`?', ln)
@@ -349,16 +349,20 @@ def _build(md: str, uid: str) -> bytes:
     return bytes(pdf.output())
 
 
-# ── Simple compact table ──────────────────────────────────────
 def _draw_table(pdf, lines):
     """
-    Renders a compact, minimal table:
-    - Thin single-line borders in muted gray
-    - Soft steel-blue header background, plain white/light-stripe body
-    - Small font (7.5 pt) and tight row height (5.5 mm) to save space
-    - No heavy fills, no colored left bars, no rounded shapes
+    Render a simple, compact data table.
+
+    Design
+    ------
+    - Tight 6 pt row height — no wasted vertical space.
+    - Muted slate-blue header row with white bold text.
+    - Plain white / very-light-gray alternating data rows.
+    - Only horizontal rules between rows (no per-cell verticals).
+    - Single thin outer border around the whole table.
+    - Long values are truncated rather than wrapping.
     """
-    # Parse rows (skip separator lines)
+    # ── Parse rows ───────────────────────────────────────────────────────────
     rows = []
     for line in lines:
         cells = [_c(c.strip()) for c in line.strip("|").split("|")]
@@ -373,68 +377,62 @@ def _draw_table(pdf, lines):
         while len(row) < num_cols:
             row.append("")
 
-    # ── Layout constants ──────────────────────────────────────
-    PAGE_W   = 180          # usable width (mm)
-    MARGIN_L = 15           # left margin
-    ROW_H    = 5.5          # row height (mm) — compact
-    FONT_SZ  = 7.5          # point size
-    PAD_X    = 1.8          # horizontal cell padding
-    PAD_Y    = 1.2          # vertical cell padding
-
-    # Column widths: first column slightly wider if > 2 cols
-    if num_cols == 1:
-        col_widths = [PAGE_W]
-    elif num_cols == 2:
-        col_widths = [PAGE_W * 0.42, PAGE_W * 0.58]
-    else:
-        first_w = PAGE_W * 0.30
-        rest_w  = (PAGE_W - first_w) / (num_cols - 1)
-        col_widths = [first_w] + [rest_w] * (num_cols - 1)
+    # ── Layout constants ─────────────────────────────────────────────────────
+    TABLE_W  = 180           # total table width (mm)
+    ROW_H    = 6             # compact row height (mm)
+    COL_PAD  = 2             # horizontal text padding (mm)
+    COL_W    = TABLE_W / num_cols
+    LEFT_X   = 15            # left margin (mm)
+    MAX_CHARS = max(8, int(COL_W / 2.1))   # chars before truncation
 
     pdf.ln(3)
+    table_start_y = pdf.get_y()
 
     for ri, row in enumerate(rows):
         # Page-break guard
         if pdf.get_y() + ROW_H > pdf.h - 18:
             pdf.add_page()
             pdf.set_y(20)
+            table_start_y = pdf.get_y()
 
-        is_hdr = ri == 0
-        y = pdf.get_y()
+        y        = pdf.get_y()
+        is_hdr   = (ri == 0)
 
-        for ci, cell in enumerate(row):
-            x = MARGIN_L + sum(col_widths[:ci])
-            w = col_widths[ci]
+        # Row background
+        if is_hdr:
+            pdf.set_fill_color(*C["tbl_header_bg"])
+        elif ri % 2 == 0:
+            pdf.set_fill_color(*C["white"])
+        else:
+            pdf.set_fill_color(*C["tbl_row_alt"])
 
-            # ── Background ────────────────────────────────────
-            if is_hdr:
-                pdf.set_fill_color(*C["tbl_head_bg"])
-            elif ri % 2 == 0:
-                pdf.set_fill_color(*C["white"])
-            else:
-                pdf.set_fill_color(*C["tbl_stripe"])
+        pdf.rect(LEFT_X, y, TABLE_W, ROW_H, "F")
 
+        # Horizontal separator between data rows (skip above header)
+        if not is_hdr:
             pdf.set_draw_color(*C["tbl_border"])
-            pdf.rect(x, y, w, ROW_H, "FD")   # fill + thin border
+            pdf.line(LEFT_X, y, LEFT_X + TABLE_W, y)
 
-            # ── Text ──────────────────────────────────────────
+        # Cell text
+        for ci, cell in enumerate(row):
+            x       = LEFT_X + ci * COL_W
+            display = cell if len(cell) <= MAX_CHARS else cell[:MAX_CHARS - 2] + ".."
+
             if is_hdr:
-                pdf.set_font("Helvetica", "B", FONT_SZ)
-                pdf.set_text_color(*C["tbl_head_txt"])
+                pdf.set_font("Helvetica", "B", 8)
+                pdf.set_text_color(*C["white"])
             else:
-                pdf.set_font("Helvetica", "", FONT_SZ)
-                pdf.set_text_color(*C["black"])
+                pdf.set_font("Helvetica", "", 8)
+                pdf.set_text_color(*C["gray_dark"])
 
-            # Truncate if needed
-            max_chars = int(w / (FONT_SZ * 0.38))   # rough char limit
-            display = cell if len(cell) <= max_chars else cell[:max_chars - 2] + ".."
-
-            pdf.set_xy(x + PAD_X, y + PAD_Y)
-            pdf.cell(w - PAD_X * 2, ROW_H - PAD_Y, display, align="L")
+            pdf.set_xy(x + COL_PAD, y + 1)
+            pdf.cell(COL_W - COL_PAD * 2, ROW_H - 1, display, align="L")
 
         pdf.set_y(y + ROW_H)
 
-    # Single thin underline below the table
+    # Outer border drawn after all rows are laid out
+    table_end_y = pdf.get_y()
     pdf.set_draw_color(*C["tbl_border"])
-    pdf.line(MARGIN_L, pdf.get_y(), MARGIN_L + PAGE_W, pdf.get_y())
+    pdf.rect(LEFT_X, table_start_y, TABLE_W, table_end_y - table_start_y, "D")
+
     pdf.ln(4)
