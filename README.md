@@ -11,7 +11,7 @@
 
 ## 🌐 Live Demo
 
-👉 **https://proteosage.streamlit.app**
+👉 **https://proteosage-4yoyf2qoi76p76chc8mevl.streamlit.app/**
 
 Just enter a UniProt ID and get a full scientific report in minutes!
 
