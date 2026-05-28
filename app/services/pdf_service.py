@@ -24,6 +24,11 @@ C = {
     "green":      (34, 120,  60),
     "red":        (160,  30,  30),
     "purple":     (90,  40, 130),
+    # Simple table palette
+    "tbl_head_bg":  (230, 236, 244),   # soft steel-blue header
+    "tbl_head_txt": (15,  52,  86),    # navy text
+    "tbl_stripe":   (247, 249, 252),   # very light alternate row
+    "tbl_border":   (200, 207, 218),   # muted border line
 }
 
 def generate_pdf(markdown_text: str, uniprot_id: str) -> bytes:
@@ -114,7 +119,6 @@ def _build(md: str, uid: str) -> bytes:
         if ln.startswith("# "):
             pname = _c(ln[2:])
             break
-    # Truncate if too long
     if len(pname) > 40:
         pname = pname[:38] + "..."
     pdf.multi_cell(210, 14, pname, align="C")
@@ -250,20 +254,16 @@ def _build(md: str, uid: str) -> bytes:
             section_num += 1
             pdf.ln(4)
             sy = pdf.get_y()
-            # Background
             pdf.set_fill_color(*C["pale_blue"])
             pdf.rect(15, sy, 180, 10, "F")
-            # Left accent
             pdf.set_fill_color(*C["blue"])
             pdf.rect(15, sy, 4, 10, "F")
-            # Number circle
             pdf.set_fill_color(*C["teal"])
             pdf.ellipse(19, sy + 1, 8, 8, "F")
             pdf.set_font("Helvetica", "B", 7)
             pdf.set_text_color(*C["white"])
             pdf.set_xy(19, sy + 2)
             pdf.cell(8, 6, str(section_num), align="C")
-            # Title
             pdf.set_font("Helvetica", "B", 11)
             pdf.set_text_color(*C["navy"])
             pdf.set_xy(30, sy + 1)
@@ -287,11 +287,9 @@ def _build(md: str, uid: str) -> bytes:
             pdf.set_fill_color(*C["light_gold"])
             pdf.set_draw_color(*C["gold"])
             bx, by = 15, pdf.get_y()
-            # Draw filled rect first
             pdf.rect(bx, by, 180, 9, "F")
             pdf.set_draw_color(*C["gold"])
             pdf.rect(bx, by, 180, 9, "D")
-            # Gold left bar
             pdf.set_fill_color(*C["gold"])
             pdf.rect(bx, by, 3, 9, "F")
             pdf.set_font("Helvetica", "B", 9)
@@ -304,8 +302,6 @@ def _build(md: str, uid: str) -> bytes:
         elif s.startswith("- ") or s.startswith("* "):
             pdf.set_font("Helvetica", "", 9)
             pdf.set_text_color(*C["black"])
-            bx = pdf.get_x()
-            # Teal bullet
             pdf.set_fill_color(*C["teal"])
             pdf.ellipse(18, pdf.get_y() + 2, 2, 2, "F")
             pdf.set_x(22)
@@ -315,7 +311,6 @@ def _build(md: str, uid: str) -> bytes:
         elif re.match(r"^\d+\.", s):
             pdf.set_font("Helvetica", "", 9)
             pdf.set_text_color(*C["black"])
-            # Number in teal
             num_m = re.match(r"^(\d+)\.\s*(.*)", cl)
             if num_m:
                 num, rest = num_m.group(1), num_m.group(2)
@@ -354,8 +349,16 @@ def _build(md: str, uid: str) -> bytes:
     return bytes(pdf.output())
 
 
+# ── Simple compact table ──────────────────────────────────────
 def _draw_table(pdf, lines):
-    """Render a scientific-style data table."""
+    """
+    Renders a compact, minimal table:
+    - Thin single-line borders in muted gray
+    - Soft steel-blue header background, plain white/light-stripe body
+    - Small font (7.5 pt) and tight row height (5.5 mm) to save space
+    - No heavy fills, no colored left bars, no rounded shapes
+    """
+    # Parse rows (skip separator lines)
     rows = []
     for line in lines:
         cells = [_c(c.strip()) for c in line.strip("|").split("|")]
@@ -370,60 +373,68 @@ def _draw_table(pdf, lines):
         while len(row) < num_cols:
             row.append("")
 
-    # Dynamic column widths
-    page_w = 180
-    col_w = page_w / num_cols
+    # ── Layout constants ──────────────────────────────────────
+    PAGE_W   = 180          # usable width (mm)
+    MARGIN_L = 15           # left margin
+    ROW_H    = 5.5          # row height (mm) — compact
+    FONT_SZ  = 7.5          # point size
+    PAD_X    = 1.8          # horizontal cell padding
+    PAD_Y    = 1.2          # vertical cell padding
 
-    # Minimum row height
-    ROW_H = 7
-    pdf.ln(2)
+    # Column widths: first column slightly wider if > 2 cols
+    if num_cols == 1:
+        col_widths = [PAGE_W]
+    elif num_cols == 2:
+        col_widths = [PAGE_W * 0.42, PAGE_W * 0.58]
+    else:
+        first_w = PAGE_W * 0.30
+        rest_w  = (PAGE_W - first_w) / (num_cols - 1)
+        col_widths = [first_w] + [rest_w] * (num_cols - 1)
+
+    pdf.ln(3)
 
     for ri, row in enumerate(rows):
-        # Page break check
+        # Page-break guard
         if pdf.get_y() + ROW_H > pdf.h - 18:
             pdf.add_page()
             pdf.set_y(20)
-            ri = 0  # Redraw header on new page
 
         is_hdr = ri == 0
+        y = pdf.get_y()
 
         for ci, cell in enumerate(row):
-            x = 15 + ci * col_w
-            y = pdf.get_y()
+            x = MARGIN_L + sum(col_widths[:ci])
+            w = col_widths[ci]
 
-            # Cell background
+            # ── Background ────────────────────────────────────
             if is_hdr:
-                pdf.set_fill_color(*C["navy"])
-            elif ri % 2 == 1:
-                pdf.set_fill_color(*C["pale_blue"])
-            else:
+                pdf.set_fill_color(*C["tbl_head_bg"])
+            elif ri % 2 == 0:
                 pdf.set_fill_color(*C["white"])
-
-            pdf.rect(x, y, col_w, ROW_H, "F")
-
-            # Cell border
-            if is_hdr:
-                pdf.set_draw_color(*C["navy"])
             else:
-                pdf.set_draw_color(*C["gray_light"])
-            pdf.rect(x, y, col_w, ROW_H, "D")
+                pdf.set_fill_color(*C["tbl_stripe"])
 
-            # Cell text
+            pdf.set_draw_color(*C["tbl_border"])
+            pdf.rect(x, y, w, ROW_H, "FD")   # fill + thin border
+
+            # ── Text ──────────────────────────────────────────
             if is_hdr:
-                pdf.set_font("Helvetica", "B", 8)
-                pdf.set_text_color(*C["white"])
+                pdf.set_font("Helvetica", "B", FONT_SZ)
+                pdf.set_text_color(*C["tbl_head_txt"])
             else:
-                pdf.set_font("Helvetica", "", 8)
+                pdf.set_font("Helvetica", "", FONT_SZ)
                 pdf.set_text_color(*C["black"])
 
-            # Truncate long text
-            display = cell[:28] + ".." if len(cell) > 30 else cell
-            pdf.set_xy(x + 1.5, y + 1.5)
-            pdf.cell(col_w - 3, ROW_H - 3, display, align="L")
+            # Truncate if needed
+            max_chars = int(w / (FONT_SZ * 0.38))   # rough char limit
+            display = cell if len(cell) <= max_chars else cell[:max_chars - 2] + ".."
 
-        pdf.set_y(pdf.get_y() + ROW_H)
+            pdf.set_xy(x + PAD_X, y + PAD_Y)
+            pdf.cell(w - PAD_X * 2, ROW_H - PAD_Y, display, align="L")
 
-    # Bottom rule
-    pdf.set_draw_color(*C["blue"])
-    pdf.line(15, pdf.get_y(), 195, pdf.get_y())
-    pdf.ln(5)
+        pdf.set_y(y + ROW_H)
+
+    # Single thin underline below the table
+    pdf.set_draw_color(*C["tbl_border"])
+    pdf.line(MARGIN_L, pdf.get_y(), MARGIN_L + PAGE_W, pdf.get_y())
+    pdf.ln(4)
