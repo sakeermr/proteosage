@@ -24,10 +24,9 @@ C = {
     "green":      (34, 120,  60),
     "red":        (160,  30,  30),
     "purple":     (90,  40, 130),
-    # Simple table colors
-    "tbl_header_bg": (70,  90, 115),   # Muted slate-blue header
-    "tbl_row_alt":   (245, 247, 250),  # Very light gray stripe
-    "tbl_border":    (200, 205, 212),  # Soft border line
+    # Minimal table colors
+    "tbl_header_line": (40,  70, 110),   # dark underline beneath header
+    "tbl_divider":     (210, 213, 218),  # ultra-light row separator
 }
 
 def generate_pdf(markdown_text: str, uniprot_id: str) -> bytes:
@@ -55,13 +54,10 @@ def _build(md: str, uid: str) -> bytes:
         def header(self):
             if self.page_no() == 1:
                 return
-            # Top rule
             self.set_fill_color(*C["navy"])
             self.rect(0, 0, 210, 1.5, "F")
-            # Left accent
             self.set_fill_color(*C["teal"])
             self.rect(0, 0, 3, 14, "F")
-            # Header text
             self.set_font("Helvetica", "B", 7)
             self.set_text_color(*C["navy"])
             self.set_xy(6, 4)
@@ -94,48 +90,38 @@ def _build(md: str, uid: str) -> bytes:
     # ═══════════════════════════════════════════════════════════
     pdf.add_page()
 
-    # Full navy background top band
     pdf.set_fill_color(*C["navy"])
     pdf.rect(0, 0, 210, 100, "F")
 
-    # Teal accent stripe
     pdf.set_fill_color(*C["teal"])
     pdf.rect(0, 95, 210, 5, "F")
 
-    # Institution / platform name
     pdf.set_xy(0, 18)
     pdf.set_font("Helvetica", "", 10)
     pdf.set_text_color(160, 200, 235)
     pdf.cell(210, 8, "ProteoSage  .  AI Protein Research Platform", align="C")
 
-    # Main title
     pdf.set_xy(0, 30)
     pdf.set_font("Helvetica", "B", 26)
     pdf.set_text_color(*C["white"])
-    # Extract protein name
     pname = uid
     for ln in md.split("\n")[:6]:
         if ln.startswith("# "):
             pname = _c(ln[2:])
             break
-    # Truncate if too long
     if len(pname) > 40:
         pname = pname[:38] + "..."
     pdf.multi_cell(210, 14, pname, align="C")
 
-    # Subtitle
     pdf.set_font("Helvetica", "", 11)
     pdf.set_text_color(180, 215, 245)
     pdf.set_xy(0, pdf.get_y() + 4)
     pdf.cell(210, 8, "Comprehensive Protein Research Report", align="C")
 
-    # Metadata box (white card)
     card_y = 108
     pdf.set_fill_color(*C["white"])
     pdf.set_draw_color(*C["gray_light"])
     pdf.rect(20, card_y, 170, 52, "FD")
-
-    # Teal left border on card
     pdf.set_fill_color(*C["teal"])
     pdf.rect(20, card_y, 3, 52, "F")
 
@@ -144,7 +130,6 @@ def _build(md: str, uid: str) -> bytes:
     pdf.set_text_color(*C["navy"])
     pdf.cell(0, 8, f"UniProt Accession: {uid}", align="L")
 
-    # Extract gene name
     gene = "-"
     for ln in md.split("\n"):
         if "**Gene:**" in ln or "Gene |" in ln:
@@ -169,7 +154,6 @@ def _build(md: str, uid: str) -> bytes:
     pdf.set_text_color(*C["teal"])
     pdf.cell(0, 7, "AI-synthesized from 8 biomedical databases", align="L")
 
-    # Database badges row
     badge_y = 172
     databases = ["UniProt","PubMed","ClinVar","AlphaFold","PDB","STRING","Reactome","GTEx","Open Targets"]
     badge_w = 19
@@ -184,7 +168,6 @@ def _build(md: str, uid: str) -> bytes:
         pdf.set_text_color(*C["navy"])
         pdf.cell(badge_w - 1, 6, db, align="C")
 
-    # Bottom disclaimer
     pdf.set_xy(0, 240)
     pdf.set_fill_color(*C["gray_pale"])
     pdf.rect(0, 240, 210, 57, "F")
@@ -221,7 +204,6 @@ def _build(md: str, uid: str) -> bytes:
         raw = lines[i]
         s = raw.strip()
 
-        # Accumulate table lines
         if s.startswith("|"):
             tbuf.append(s)
             i += 1
@@ -237,7 +219,6 @@ def _build(md: str, uid: str) -> bytes:
 
         cl = _c(s)
 
-        # ── H1: protein title ─────────────────────────────────
         if s.startswith("# "):
             pdf.set_fill_color(*C["navy"])
             pdf.rect(15, pdf.get_y(), 180, 14, "F")
@@ -249,7 +230,6 @@ def _build(md: str, uid: str) -> bytes:
             pdf.cell(173, 8, cl[2:].strip()[:70], align="L")
             pdf.ln(16)
 
-        # ── H2: section headers ───────────────────────────────
         elif s.startswith("## "):
             section_num += 1
             pdf.ln(4)
@@ -270,7 +250,6 @@ def _build(md: str, uid: str) -> bytes:
             pdf.cell(165, 8, cl[3:].strip(), align="L")
             pdf.ln(12)
 
-        # ── H3 ───────────────────────────────────────────────
         elif s.startswith("### "):
             pdf.ln(2)
             pdf.set_font("Helvetica", "B", 10)
@@ -281,11 +260,9 @@ def _build(md: str, uid: str) -> bytes:
             pdf.cell(0, 7, cl[4:].strip(), align="L")
             pdf.ln(1)
 
-        # ── Badge / blockquote ────────────────────────────────
         elif s.startswith("> "):
             pdf.ln(1)
             pdf.set_fill_color(*C["light_gold"])
-            pdf.set_draw_color(*C["gold"])
             bx, by = 15, pdf.get_y()
             pdf.rect(bx, by, 180, 9, "F")
             pdf.set_draw_color(*C["gold"])
@@ -298,7 +275,6 @@ def _build(md: str, uid: str) -> bytes:
             pdf.multi_cell(172, 7, cl[2:].strip())
             pdf.ln(3)
 
-        # ── Bullet ────────────────────────────────────────────
         elif s.startswith("- ") or s.startswith("* "):
             pdf.set_font("Helvetica", "", 9)
             pdf.set_text_color(*C["black"])
@@ -307,7 +283,6 @@ def _build(md: str, uid: str) -> bytes:
             pdf.set_x(22)
             pdf.multi_cell(173, 5, cl[2:].strip())
 
-        # ── Numbered list ─────────────────────────────────────
         elif re.match(r"^\d+\.", s):
             pdf.set_font("Helvetica", "", 9)
             pdf.set_text_color(*C["black"])
@@ -328,13 +303,11 @@ def _build(md: str, uid: str) -> bytes:
                 pdf.set_x(22)
                 pdf.multi_cell(173, 5, cl)
 
-        # ── Divider ───────────────────────────────────────────
         elif s in ("---", "***", "___"):
             pdf.set_draw_color(*C["gray_light"])
             pdf.line(15, pdf.get_y() + 1, 195, pdf.get_y() + 1)
             pdf.ln(4)
 
-        # ── Body text ─────────────────────────────────────────
         else:
             pdf.set_font("Helvetica", "", 9)
             pdf.set_text_color(*C["black"])
@@ -351,18 +324,17 @@ def _build(md: str, uid: str) -> bytes:
 
 def _draw_table(pdf, lines):
     """
-    Render a simple, compact data table.
+    Minimal / Borderless table style.
 
-    Design
-    ------
-    - Tight 6 pt row height — no wasted vertical space.
-    - Muted slate-blue header row with white bold text.
-    - Plain white / very-light-gray alternating data rows.
-    - Only horizontal rules between rows (no per-cell verticals).
-    - Single thin outer border around the whole table.
-    - Long values are truncated rather than wrapping.
+    Rules
+    -----
+    - No outer border, no cell boxes, no background fills on data rows.
+    - Header row: bold dark text + a solid 0.5 pt underline beneath it.
+    - Data rows: plain text separated by ultra-light hairline rules.
+    - A final thin bottom rule closes the table visually.
+    - Compact 6 pt row height; text never wraps (truncated with '..').
     """
-    # ── Parse rows ───────────────────────────────────────────────────────────
+    # ── Parse ────────────────────────────────────────────────────────────────
     rows = []
     for line in lines:
         cells = [_c(c.strip()) for c in line.strip("|").split("|")]
@@ -372,55 +344,49 @@ def _draw_table(pdf, lines):
     if not rows:
         return
 
-    num_cols = max(len(r) for r in rows)
+    num_cols  = max(len(r) for r in rows)
     for row in rows:
         while len(row) < num_cols:
             row.append("")
 
-    # ── Layout constants ─────────────────────────────────────────────────────
-    TABLE_W  = 180           # total table width (mm)
-    ROW_H    = 6             # compact row height (mm)
-    COL_PAD  = 2             # horizontal text padding (mm)
-    COL_W    = TABLE_W / num_cols
-    LEFT_X   = 15            # left margin (mm)
-    MAX_CHARS = max(8, int(COL_W / 2.1))   # chars before truncation
+    # ── Constants ────────────────────────────────────────────────────────────
+    TABLE_W   = 180
+    ROW_H     = 6
+    COL_PAD   = 2
+    COL_W     = TABLE_W / num_cols
+    LEFT_X    = 15
+    MAX_CHARS = max(8, int(COL_W / 2.0))
 
     pdf.ln(3)
-    table_start_y = pdf.get_y()
 
     for ri, row in enumerate(rows):
-        # Page-break guard
         if pdf.get_y() + ROW_H > pdf.h - 18:
             pdf.add_page()
             pdf.set_y(20)
-            table_start_y = pdf.get_y()
 
-        y        = pdf.get_y()
-        is_hdr   = (ri == 0)
+        y      = pdf.get_y()
+        is_hdr = (ri == 0)
 
-        # Row background
+        # ── Header underline (drawn before text so text sits on top) ─────────
         if is_hdr:
-            pdf.set_fill_color(*C["tbl_header_bg"])
-        elif ri % 2 == 0:
-            pdf.set_fill_color(*C["white"])
+            pdf.set_draw_color(*C["tbl_header_line"])
+            pdf.set_line_width(0.5)
+            pdf.line(LEFT_X, y + ROW_H, LEFT_X + TABLE_W, y + ROW_H)
+            pdf.set_line_width(0.2)   # reset
         else:
-            pdf.set_fill_color(*C["tbl_row_alt"])
-
-        pdf.rect(LEFT_X, y, TABLE_W, ROW_H, "F")
-
-        # Horizontal separator between data rows (skip above header)
-        if not is_hdr:
-            pdf.set_draw_color(*C["tbl_border"])
+            # Ultra-light hairline between data rows
+            pdf.set_draw_color(*C["tbl_divider"])
+            pdf.set_line_width(0.2)
             pdf.line(LEFT_X, y, LEFT_X + TABLE_W, y)
 
-        # Cell text
+        # ── Cell text ────────────────────────────────────────────────────────
         for ci, cell in enumerate(row):
             x       = LEFT_X + ci * COL_W
             display = cell if len(cell) <= MAX_CHARS else cell[:MAX_CHARS - 2] + ".."
 
             if is_hdr:
                 pdf.set_font("Helvetica", "B", 8)
-                pdf.set_text_color(*C["white"])
+                pdf.set_text_color(*C["navy"])
             else:
                 pdf.set_font("Helvetica", "", 8)
                 pdf.set_text_color(*C["gray_dark"])
@@ -430,9 +396,10 @@ def _draw_table(pdf, lines):
 
         pdf.set_y(y + ROW_H)
 
-    # Outer border drawn after all rows are laid out
-    table_end_y = pdf.get_y()
-    pdf.set_draw_color(*C["tbl_border"])
-    pdf.rect(LEFT_X, table_start_y, TABLE_W, table_end_y - table_start_y, "D")
+    # ── Final bottom rule ────────────────────────────────────────────────────
+    pdf.set_draw_color(*C["tbl_header_line"])
+    pdf.set_line_width(0.4)
+    pdf.line(LEFT_X, pdf.get_y(), LEFT_X + TABLE_W, pdf.get_y())
+    pdf.set_line_width(0.2)   # reset
 
-    pdf.ln(4)
+    pdf.ln(5)
