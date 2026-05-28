@@ -351,13 +351,13 @@ def _draw_table(pdf, lines):
 
     # ── Constants ────────────────────────────────────────────────────────────
     TABLE_W   = 180
-    ROW_H     = 6
-    COL_PAD   = 2
+    ROW_H     = 4        # was 6 — bare minimum to fit 8pt text
+    COL_PAD   = 1        # was 2 — tightest readable side padding
     COL_W     = TABLE_W / num_cols
     LEFT_X    = 15
     MAX_CHARS = max(8, int(COL_W / 2.0))
 
-    pdf.ln(3)
+    pdf.ln(1)            # was 3 — minimal top gap before table
 
     for ri, row in enumerate(rows):
         if pdf.get_y() + ROW_H > pdf.h - 18:
@@ -391,8 +391,8 @@ def _draw_table(pdf, lines):
                 pdf.set_font("Helvetica", "", 8)
                 pdf.set_text_color(*C["gray_dark"])
 
-            pdf.set_xy(x + COL_PAD, y + 1)
-            pdf.cell(COL_W - COL_PAD * 2, ROW_H - 1, display, align="L")
+            pdf.set_xy(x + COL_PAD, y + 0.5)   # was y+1 — hug the top
+            pdf.cell(COL_W - COL_PAD * 2, ROW_H - 0.5, display, align="L")
 
         pdf.set_y(y + ROW_H)
 
@@ -402,4 +402,4 @@ def _draw_table(pdf, lines):
     pdf.line(LEFT_X, pdf.get_y(), LEFT_X + TABLE_W, pdf.get_y())
     pdf.set_line_width(0.2)   # reset
 
-    pdf.ln(5)
+    pdf.ln(2)   # was 5
