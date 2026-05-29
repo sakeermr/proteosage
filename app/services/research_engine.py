@@ -375,9 +375,14 @@ def fetch_clinvar(gene_name: str) -> dict:
                 # Skip benign noise
                 if norm_sig in ("Benign", "Likely Benign"):
                     continue
-                # Skip Unknown/not-provided once we have enough meaningful variants
-                if raw_sig in ("Unknown", "not provided", "") and len(variants) >= 5:
-                    continue
+                # Skip Unknown / not-provided entries entirely when total_pathogenic > 0
+                # (ClinVar esummary sometimes returns Unknown significance even for
+                #  variants retrieved via the pathogenic filter — these are noise)
+                if raw_sig in ("Unknown", "not provided", "", "no interpretation for the single variant"):
+                    if total_pathogenic > 0:
+                        continue  # We already have real pathogenic data — skip unknowns
+                    if len(variants) >= 5:
+                        continue  # Fallback mode: keep at most 5 unknowns
 
                 variants.append({
                     "change": entry.get("title", uid),
@@ -389,6 +394,10 @@ def fetch_clinvar(gene_name: str) -> dict:
                     "clinvar_id": uid,
                     "url": f"https://www.ncbi.nlm.nih.gov/clinvar/variation/{uid}/",
                 })
+
+        # Sort: Pathogenic → Likely Pathogenic → VUS → Unknown
+        sig_order = {"Pathogenic": 0, "Likely Pathogenic": 1, "VUS": 2}
+        variants.sort(key=lambda v: sig_order.get(v["significance"], 9))
 
         evidence = make_evidence_tag("ClinVar (NCBI)", "verified", "high")
         return {
@@ -561,19 +570,19 @@ CURATED_DRUGS = {
     "TP53": [
         {"name": "APR-246 (Eprenetapopt)", "type": "Small molecule", "phase": 3,
          "mechanism": "Mutant p53 reactivator", "disease": "Myelodysplastic syndrome",
-         "status": "Clinical trial"},
+         "status": "Clinical trial", "mutations": "Mutant TP53 (any)"},
         {"name": "Idasanutlin (RG7388)", "type": "Small molecule", "phase": 3,
          "mechanism": "MDM2 inhibitor", "disease": "Acute myeloid leukemia",
-         "status": "Clinical trial"},
+         "status": "Clinical trial", "mutations": "WT TP53 (MDM2 overexp)"},
         {"name": "Nutlin-3a (RG7112)", "type": "Small molecule", "phase": 2,
          "mechanism": "MDM2 inhibitor", "disease": "Liposarcoma",
-         "status": "Clinical trial"},
+         "status": "Clinical trial", "mutations": "WT TP53 (MDM2 amplified)"},
         {"name": "Gendicine (rAd-p53)", "type": "Gene therapy", "phase": 4,
          "mechanism": "p53 gene replacement", "disease": "Head and neck cancer",
          "status": "Approved (China)"},
         {"name": "Navtemadlin", "type": "Small molecule", "phase": 3,
          "mechanism": "MDM2 inhibitor", "disease": "Merkel cell carcinoma",
-         "status": "Clinical trial"},
+         "status": "Clinical trial", "mutations": "WT TP53 required"},
     ],
     "EGFR": [
         {"name": "Erlotinib (Tarceva)", "type": "Small molecule", "phase": 4,
@@ -1018,7 +1027,7 @@ Paragraph 3 — THERAPEUTIC OPPORTUNITIES & GAPS: Given {drugs} known drugs,
 what are the key unmet needs and future research priorities?
 
 Keep each paragraph grounded in the data. Flag anything speculative.""",
-        temperature=0.4, max_tokens=700,
+        temperature=0.4, max_tokens=1100,
     )
 
 
@@ -1436,16 +1445,18 @@ def build_markdown_report(data: dict) -> str:
     else:
         sections.append("_No drug data available._")
 
-    # Contradictions / Quality Flags
+    # Contradictions / Quality Flags — always show section 12
     contradictions = data.get("contradictions", [])
+    sections += ["", "## 12. Data Quality & Conflict Notes"]
     if contradictions:
-        sections += ["", "## 12. Data Quality & Conflict Notes"]
         sections.append("> ⚠️ The following issues were detected when cross-referencing data sources:\n")
         for c in contradictions:
             sev_icon = {"medium": "🟡", "low": "🔵", "high": "🔴"}.get(c.get("severity", "low"), "⚪")
             sources = " vs ".join(c.get("sources", []))
             sections.append(f"- {sev_icon} **{c.get('type','note').upper()}** [{sources}]: {c['message']}")
-        sections += [""]
+    else:
+        sections.append("> ✅ No data conflicts detected across all 9 sources. Data quality is consistent.")
+    sections += [""]
 
     # Literature
     sections += ["", "## 13. Literature Review",
