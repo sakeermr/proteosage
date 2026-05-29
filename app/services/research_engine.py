@@ -375,14 +375,24 @@ def fetch_clinvar(gene_name: str) -> dict:
                 # Skip benign noise
                 if norm_sig in ("Benign", "Likely Benign"):
                     continue
-                # Skip Unknown / not-provided entries entirely when total_pathogenic > 0
-                # (ClinVar esummary sometimes returns Unknown significance even for
-                #  variants retrieved via the pathogenic filter — these are noise)
-                if raw_sig in ("Unknown", "not provided", "", "no interpretation for the single variant"):
-                    if total_pathogenic > 0:
-                        continue  # We already have real pathogenic data — skip unknowns
-                    if len(variants) >= 5:
-                        continue  # Fallback mode: keep at most 5 unknowns
+                # Deprioritise Unknown/not-provided — collect separately,
+                # only use if we end up with no meaningful variants at all.
+                if raw_sig in ("Unknown", "not provided", "",
+                               "no interpretation for the single variant",
+                               "no classifications from unflagged records"):
+                    # Tag as fallback so we can add them later if needed
+                    variants.append({
+                        "change": entry.get("title", uid),
+                        "significance": "Unknown",
+                        "significance_icon": "⚪",
+                        "condition": condition,
+                        "confidence": "low",
+                        "source": "ClinVar",
+                        "clinvar_id": uid,
+                        "url": f"https://www.ncbi.nlm.nih.gov/clinvar/variation/{uid}/",
+                        "_fallback": True,
+                    })
+                    continue
 
                 variants.append({
                     "change": entry.get("title", uid),
@@ -395,9 +405,21 @@ def fetch_clinvar(gene_name: str) -> dict:
                     "url": f"https://www.ncbi.nlm.nih.gov/clinvar/variation/{uid}/",
                 })
 
+        # Separate meaningful variants from fallback (Unknown) ones
+        good_variants = [v for v in variants if not v.pop("_fallback", False)]
+        fallback_variants = [v for v in variants if v.get("_fallback")]
+        # Re-separate after pop (pop modifies in place)
+        good_variants = [v for v in variants if "_fallback" not in v]
+
+        # If we have no meaningful variants but ClinVar returned Unknowns, show those
+        # (annotated clearly) so the table isn't empty when data IS available
+        if not good_variants and fallback_variants:
+            good_variants = fallback_variants[:8]
+
         # Sort: Pathogenic → Likely Pathogenic → VUS → Unknown
         sig_order = {"Pathogenic": 0, "Likely Pathogenic": 1, "VUS": 2}
-        variants.sort(key=lambda v: sig_order.get(v["significance"], 9))
+        good_variants.sort(key=lambda v: sig_order.get(v["significance"], 9))
+        variants = good_variants
 
         evidence = make_evidence_tag("ClinVar (NCBI)", "verified", "high")
         return {
@@ -974,8 +996,10 @@ def generate_classification(protein_data: dict, mutation_data: dict,
 [Classification + confidence level + supporting evidence from data provided]
 
 ## EXPRESSION CLASSIFICATION
-[Overexpressed/Underexpressed/Tissue-Restricted/Ubiquitously Expressed/Stress-Induced]
-[Confidence: High/Medium/Low + brief evidence]
+IMPORTANT: Classify NORMAL TISSUE expression pattern from GTEx data, NOT cancer overexpression.
+Use one of: Ubiquitously Expressed / Tissue-Restricted / Broadly Expressed / Low/Ubiquitous / Stress-Induced
+DO NOT use "Overexpressed" — that describes cancer behaviour, not the protein's normal expression pattern.
+[Your classification + Confidence: High/Medium/Low + brief evidence from keywords/function]
 
 ## STRUCTURAL CLASSIFICATION
 [Stable Globular/Conformational Change Driver/Intrinsically Disordered/Multi-domain Allosteric]
@@ -1033,18 +1057,30 @@ Keep each paragraph grounded in the data. Flag anything speculative.""",
 
 def generate_conclusion(protein_name: str, gene_name: str, uniprot_id: str,
                         classification: str) -> str:
-    verdict = classification.split("CHIEF SCIENTIST VERDICT")[-1][:400] \
+    # Extract verdict — trim cleanly at a word boundary to avoid the LLM
+    # continuing mid-word from the truncated context string.
+    raw_verdict = classification.split("CHIEF SCIENTIST VERDICT")[-1] \
         if "CHIEF SCIENTIST VERDICT" in classification else ""
+    # Truncate at word boundary (last space before 500 chars)
+    raw_verdict = raw_verdict[:500]
+    verdict = raw_verdict[:raw_verdict.rfind(" ")] if " " in raw_verdict else raw_verdict
+
     return llm_service.complete(
-        system_prompt="You are a senior biomedical researcher writing a scientific report conclusion.",
-        user_prompt=(
-            f"Write a 5-6 sentence conclusion for {protein_name} ({gene_name}, UniProt: {uniprot_id}). "
-            f"Include: (1) what is most firmly established about this protein, "
-            f"(2) its clinical importance, (3) the most promising therapeutic direction, "
-            f"(4) the most important knowledge gap. "
-            f"Expert summary context: {verdict}"
+        system_prompt=(
+            "You are a senior biomedical researcher writing a scientific report conclusion. "
+            "Write ONLY the conclusion paragraph — do not repeat or continue the context below. "
+            "Start the conclusion with the protein name."
         ),
-        temperature=0.3, max_tokens=300,
+        user_prompt=(
+            f"Expert context (do NOT copy or continue this):\n{verdict}\n\n"
+            f"---\n"
+            f"Now write a standalone 5-6 sentence conclusion for {protein_name} "
+            f"({gene_name}, UniProt: {uniprot_id}). "
+            f"Include: (1) what is most firmly established, "
+            f"(2) clinical importance, (3) best therapeutic direction, "
+            f"(4) the most important knowledge gap remaining."
+        ),
+        temperature=0.3, max_tokens=500,
     )
 
 
