@@ -372,8 +372,11 @@ def fetch_clinvar(gene_name: str) -> dict:
                 trait_set = entry.get("trait_set", [])
                 condition = trait_set[0].get("trait_name", "Unknown") if trait_set else "Unknown"
 
-                # Only keep clinically relevant variants
+                # Skip benign noise
                 if norm_sig in ("Benign", "Likely Benign"):
+                    continue
+                # Skip Unknown/not-provided once we have enough meaningful variants
+                if raw_sig in ("Unknown", "not provided", "") and len(variants) >= 5:
                     continue
 
                 variants.append({
@@ -688,13 +691,27 @@ CURATED_DRUGS = {
          "mechanism": "PI3Kα inhibitor", "disease": "Breast cancer (PIK3CA mutant)",
          "status": "FDA Approved"},
     ],
-    "PIK3CA": [
-        {"name": "Alpelisib (Piqray)", "type": "Small molecule", "phase": 4,
-         "mechanism": "PI3Kα inhibitor", "disease": "HR+/HER2- breast cancer",
-         "status": "FDA Approved", "mutations": "PIK3CA mutation required"},
-        {"name": "Idelalisib (Zydelig)", "type": "Small molecule", "phase": 4,
-         "mechanism": "PI3Kδ inhibitor", "disease": "CLL / FL",
-         "status": "FDA Approved"},
+    "CTNNB1": [
+        {"name": "Tegavivint (BC2059)", "type": "Small molecule", "phase": 2,
+         "mechanism": "TBL1/CTNNB1 interaction disruptor — degrades β-catenin", "disease": "Desmoid tumors / AML",
+         "status": "Phase 2 trial", "mutations": "Wnt-activated tumors"},
+        {"name": "E7386 (CK1-IN-1)", "type": "Small molecule", "phase": 2,
+         "mechanism": "CBP/β-catenin interaction inhibitor", "disease": "Solid tumors",
+         "status": "Phase 2 trial", "mutations": "CTNNB1 gain-of-function"},
+        {"name": "PRI-724", "type": "Small molecule", "phase": 2,
+         "mechanism": "CBP/β-catenin inhibitor", "disease": "AML / CML / Liver cancer",
+         "status": "Phase 2 trial", "mutations": "Wnt pathway active"},
+        {"name": "LGK-974", "type": "Small molecule", "phase": 1,
+         "mechanism": "Porcupine inhibitor (blocks Wnt ligand secretion)", "disease": "Wnt-driven cancers",
+         "status": "Phase 1 trial", "mutations": "Upstream Wnt activation"},
+        {"name": "OMP-54F28 (ipafricept)", "type": "Fusion protein", "phase": 1,
+         "mechanism": "Wnt pathway antagonist (FZD8-Fc)", "disease": "Ovarian / Liver cancer",
+         "status": "Phase 1 trial", "mutations": "Wnt pathway active"},
+    ],
+    "WNT": [
+        {"name": "Tegavivint", "type": "Small molecule", "phase": 2,
+         "mechanism": "β-catenin degrader", "disease": "Desmoid tumors",
+         "status": "Phase 2 trial"},
     ],
 }
 
@@ -829,6 +846,36 @@ CURATED_EXPRESSION = {
         {"tissue": "Lung", "tpm": 22.3, "level": "Medium"},
         {"tissue": "Colon", "tpm": 18.4, "level": "Low"},
         {"tissue": "Whole Blood", "tpm": 8.1, "level": "Low"},
+    ],
+    "CTNNB1": [
+        {"tissue": "Small Intestine Terminal Ileum", "tpm": 98.4, "level": "High"},
+        {"tissue": "Colon Sigmoid", "tpm": 88.2, "level": "High"},
+        {"tissue": "Liver", "tpm": 82.6, "level": "High"},
+        {"tissue": "Kidney Cortex", "tpm": 76.3, "level": "High"},
+        {"tissue": "Breast Mammary Tissue", "tpm": 68.1, "level": "High"},
+        {"tissue": "Lung", "tpm": 62.4, "level": "High"},
+        {"tissue": "Brain Frontal Cortex", "tpm": 55.7, "level": "High"},
+        {"tissue": "Heart Left Ventricle", "tpm": 48.9, "level": "Medium"},
+        {"tissue": "Prostate", "tpm": 42.3, "level": "Medium"},
+        {"tissue": "Ovary", "tpm": 38.6, "level": "Medium"},
+        {"tissue": "Whole Blood", "tpm": 18.4, "level": "Low"},
+    ],
+    "KRAS": [
+        {"tissue": "Colon Sigmoid", "tpm": 72.4, "level": "High"},
+        {"tissue": "Lung", "tpm": 65.1, "level": "High"},
+        {"tissue": "Pancreas", "tpm": 58.3, "level": "High"},
+        {"tissue": "Liver", "tpm": 52.7, "level": "High"},
+        {"tissue": "Breast Mammary Tissue", "tpm": 44.2, "level": "Medium"},
+        {"tissue": "Kidney Cortex", "tpm": 38.9, "level": "Medium"},
+        {"tissue": "Whole Blood", "tpm": 22.1, "level": "Medium"},
+    ],
+    "BRCA1": [
+        {"tissue": "Testis", "tpm": 88.2, "level": "High"},
+        {"tissue": "Ovary", "tpm": 62.4, "level": "High"},
+        {"tissue": "Breast Mammary Tissue", "tpm": 48.3, "level": "Medium"},
+        {"tissue": "Uterus", "tpm": 28.4, "level": "Medium"},
+        {"tissue": "Lung", "tpm": 18.2, "level": "Low"},
+        {"tissue": "Whole Blood", "tpm": 12.6, "level": "Low"},
     ],
 }
 
@@ -1142,27 +1189,48 @@ def extract_badges(classification: str) -> dict:
     lines = classification.split("\n")
     for i, line in enumerate(lines):
         ll = line.lower()
-        next_text = " ".join(lines[i+1:i+4]) if i+1 < len(lines) else ""
+        # Look ahead 6 lines (AI sometimes puts class on next line after the header)
+        next_text = " ".join(lines[i+1:i+6]) if i+1 < len(lines) else ""
         if "primary protein class" in ll:
-            for cls in ["Tumor Suppressor", "Oncogene", "Transcription Factor", "Kinase",
-                       "Receptor", "Enzyme", "Scaffold", "Regulatory Protein",
-                       "Signaling Adaptor", "Structural Protein", "Ion Channel", "Phosphatase"]:
+            for cls in [
+                "Tumor Suppressor", "Oncogene", "Transcription Factor", "Kinase",
+                "Receptor", "Enzyme", "Scaffold", "Regulatory Protein",
+                "Signaling Adaptor", "Structural Protein", "Ion Channel", "Phosphatase",
+                # Additional classes the LLM commonly produces
+                "Adherens Junction Protein", "Cell Adhesion Protein", "Scaffold Protein",
+                "Signaling Scaffold", "Dual-Function Protein", "Co-activator",
+                "Transcriptional Co-activator", "GTPase", "Phosphoprotein",
+                "E3 Ubiquitin Ligase", "Adaptor Protein", "Chromatin Regulator",
+                "Nuclear Receptor", "Growth Factor", "Cytokine", "Protease",
+                "DNA Repair Protein", "Cell Cycle Regulator",
+            ]:
                 if cls.lower() in next_text.lower():
                     badges["primary_class"] = cls; break
+            # Fallback: grab first meaningful word/phrase on the next non-empty line
+            if badges["primary_class"] == "Unknown":
+                for j in range(i+1, min(i+4, len(lines))):
+                    stripped = lines[j].strip().lstrip("#").strip()
+                    if stripped and not stripped.startswith("Confidence"):
+                        # Take up to first newline or 40 chars as the class name
+                        candidate = stripped.split("  ")[0].split("\n")[0][:45]
+                        if len(candidate) > 3:
+                            badges["primary_class"] = candidate; break
         if "expression classification" in ll:
             for cls in ["Overexpressed", "Underexpressed", "Tissue-Restricted",
-                       "Ubiquitously Expressed", "Stress-Induced"]:
+                       "Ubiquitously Expressed", "Stress-Induced", "Cell-Type Specific"]:
                 if cls.lower() in next_text.lower():
                     badges["expression_class"] = cls; break
         if "structural classification" in ll:
             for cls in ["Stable Globular", "Conformational Change Driver",
                        "Intrinsically Disordered", "Multi-domain Allosteric",
-                       "Amyloidogenic", "Membrane-Associated"]:
+                       "Amyloidogenic", "Membrane-Associated", "Beta-Solenoid",
+                       "ARM Repeat", "HEAT Repeat"]:
                 if cls.lower() in next_text.lower():
                     badges["structural_class"] = cls; break
         if "mutation mechanism" in ll:
             for cls in ["Loss-of-Function", "Gain-of-Function",
-                       "Dominant Negative", "Haploinsufficiency"]:
+                       "Dominant Negative", "Haploinsufficiency",
+                       "Dominant-Negative", "Mixed"]:
                 if cls.lower() in next_text.lower():
                     badges["mutation_mechanism"] = cls; break
         if "therapeutic target" in ll:
